@@ -1,0 +1,63 @@
+name: Trigger DLC sweep
+
+# Thin caller: this repo exists so the virtual-employees chat agent
+# (01_sim_employee/app/tools/github_actions.py's trigger_sweep()) has a
+# workflow_dispatch target to POST against. All the actual work — fastprep,
+# TurbSim/OpenFAST matrix, postfast — lives in openfast-tools/fastforge's
+# reusable dlc11-sweep.yml; this file just forwards inputs to it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dlc_file:
+        description: 'DLC config file (repo-root-relative in fastforge). Ignored when dlc_file_b64 is set.'
+        type: string
+        default: 'dlc_11_details.txt'
+      dlc_file_b64:
+        description: 'Base64-encoded DLC file contents (what the chat agent sends).'
+        type: string
+        default: ''
+      model_repo:
+        type: string
+        default: 'NatLabRockies/ROSCO'
+      model_tag:
+        type: string
+        default: 'v2.10.5'
+      controller_repo:
+        type: string
+        default: 'NatLabRockies/ROSCO'
+      controller_tag:
+        type: string
+        default: 'v2.9.0'
+      wind_speed:
+        type: string
+        default: ''
+      fastprep_version:
+        type: string
+        default: 'latest'
+      openfast_repo:
+        type: string
+        default: 'OpenFAST/openfast'
+      openfast_version:
+        type: string
+        default: 'v4.2.0'
+      postfast_version:
+        type: string
+        default: 'latest'
+
+jobs:
+  sweep:
+    uses: openfast-tools/fastforge/.github/workflows/dlc11-sweep.yml@main
+    with:
+      dlc_file: ${{ inputs.dlc_file }}
+      dlc_file_b64: ${{ inputs.dlc_file_b64 }}
+      model_repo: ${{ inputs.model_repo }}
+      model_tag: ${{ inputs.model_tag }}
+      controller_repo: ${{ inputs.controller_repo }}
+      controller_tag: ${{ inputs.controller_tag }}
+      wind_speed: ${{ inputs.wind_speed }}
+      fastprep_version: ${{ inputs.fastprep_version }}
+      openfast_repo: ${{ inputs.openfast_repo }}
+      openfast_version: ${{ inputs.openfast_version }}
+      postfast_version: ${{ inputs.postfast_version }}
+    secrets: inherit

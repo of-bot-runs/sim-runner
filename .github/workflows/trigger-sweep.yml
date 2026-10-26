@@ -1,0 +1,189 @@
+name: Trigger DLC sweep
+
+# Thin caller: this repo exists so the virtual-employees chat agent
+# (01_sim_employee/app/tools/github_actions.py's trigger_sweep()) has a
+# workflow_dispatch target to POST against. All the actual work — fastprep,
+# TurbSim/OpenFAST matrix, postfast — lives in the fastforge repo named by
+# the FASTFORGE_REPO variable (owner/repo), so either repo can be renamed or
+# moved to another org without code changes.
+#
+# fastforge may be PRIVATE while this repo is public. A public repo cannot
+# `uses:` a private reusable workflow or action, so each job below checks
+# fastforge out with secrets.ORG_TOKEN and runs its local composite actions
+# (./fastforge/prepare, ./fastforge/simulate, ./fastforge/postprocess).
+# Those actions only call script files, so these public logs show script
+# names, not the logic. Only results are uploaded as artifacts.
+#
+# Requires in this repo: secret ORG_TOKEN (read fastforge, fastprep, postfast
+# and any private openfast_repo; Actions write here to delete per-case
+# artifacts) and variables FASTFORGE_REPO, FASTPREP_REPO, POSTFAST_REPO.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_os:
+        description: 'Runner OS for all jobs (macos = Apple Silicon)'
+        type: choice
+        options: [windows, linux, macos]
+        default: 'windows'
+      dlc_file:
+        description: 'DLC config file (repo-root-relative in fastforge). Ignored when dlc_file_b64 is set.'
+        type: string
+        default: 'dlc_11_details.txt'
+      dlc_file_b64:
+        description: 'Base64-encoded DLC file contents (what the chat agent sends).'
+        type: string
+        default: ''
+      model_repo:
+        type: string
+        default: 'NatLabRockies/ROSCO'
+      model_tag:
+        type: string
+        default: 'v2.10.5'
+      controller_repo:
+        type: string
+        default: 'NatLabRockies/ROSCO'
+      controller_tag:
+        type: string
+        default: 'v2.9.0'
+      wind_speed:
+        type: string
+        default: ''
+      fastprep_version:
+        type: string
+        default: 'latest'
+      openfast_repo:
+        type: string
+        default: 'OpenFAST/openfast'
+      openfast_version:
+        type: string
+        default: 'v4.2.0'
+      postfast_version:
+        type: string
+        default: 'latest'
+
+env:
+  FASTFORGE_REF: main
+
+jobs:
+  prepare:
+    runs-on: ${{ fromJSON('{"windows":"windows-latest","linux":"ubuntu-latest","macos":"macos-latest"}')[inputs.runner_os || 'windows'] }}
+    timeout-minutes: 30
+    outputs:
+      matrix:       ${{ steps.prepare.outputs.matrix }}
+      project_name: ${{ steps.prepare.outputs.project_name }}
+      fp_version:   ${{ steps.prepare.outputs.fp_version }}
+    steps:
+      - name: Check FASTFORGE_REPO
+        shell: bash
+        env:
+          FASTFORGE_REPO: ${{ vars.FASTFORGE_REPO }}
+        run: |
+          if [[ ! "$FASTFORGE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::Repository variable FASTFORGE_REPO must be set to the fastforge repo as owner/repo (got '${FASTFORGE_REPO}')"
+            exit 1
+          fi
+
+      - name: Check out fastforge
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.FASTFORGE_REPO }}
+          ref: ${{ env.FASTFORGE_REF }}
+          path: fastforge
+          token: ${{ secrets.ORG_TOKEN }}
+          persist-credentials: false
+
+      - name: Prepare campaign
+        id: prepare
+        uses: ./fastforge/prepare
+        with:
+          dlc_file:         ${{ inputs.dlc_file }}
+          dlc_file_b64:     ${{ inputs.dlc_file_b64 }}
+          model_repo:       ${{ inputs.model_repo }}
+          model_tag:        ${{ inputs.model_tag }}
+          controller_repo:  ${{ inputs.controller_repo }}
+          controller_tag:   ${{ inputs.controller_tag }}
+          wind_speed:       ${{ inputs.wind_speed }}
+          fastprep_version: ${{ inputs.fastprep_version }}
+          fastprep_repo:    ${{ vars.FASTPREP_REPO }}
+          openfast_repo:    ${{ inputs.openfast_repo }}
+          openfast_version: ${{ inputs.openfast_version }}
+          org_token:        ${{ secrets.ORG_TOKEN }}
+
+  simulate:
+    needs: prepare
+    runs-on: ${{ fromJSON('{"windows":"windows-latest","linux":"ubuntu-latest","macos":"macos-latest"}')[inputs.runner_os || 'windows'] }}
+    timeout-minutes: 60
+    strategy:
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+      fail-fast: false
+      max-parallel: 20
+    steps:
+      - name: Check FASTFORGE_REPO
+        shell: bash
+        env:
+          FASTFORGE_REPO: ${{ vars.FASTFORGE_REPO }}
+        run: |
+          if [[ ! "$FASTFORGE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::Repository variable FASTFORGE_REPO must be set to the fastforge repo as owner/repo (got '${FASTFORGE_REPO}')"
+            exit 1
+          fi
+
+      - name: Check out fastforge
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.FASTFORGE_REPO }}
+          ref: ${{ env.FASTFORGE_REF }}
+          path: fastforge
+          token: ${{ secrets.ORG_TOKEN }}
+          persist-credentials: false
+
+      - name: Download campaign-setup artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: campaign-setup
+          path: work/${{ needs.prepare.outputs.project_name }}
+
+      - name: Run simulation case
+        uses: ./fastforge/simulate
+        with:
+          fst_rel_path:            ${{ matrix.fst_path }}
+          campaign_dir:            ${{ github.workspace }}/work/${{ needs.prepare.outputs.project_name }}
+          openfast_repo:           ${{ inputs.openfast_repo }}
+          openfast_version:        ${{ inputs.openfast_version }}
+          github_token:            ${{ secrets.ORG_TOKEN }}
+          upload_artifact:         'true'
+          artifact_retention_days: '1'
+
+  post_process:
+    needs: [prepare, simulate]
+    if: always()
+    runs-on: ${{ fromJSON('{"windows":"windows-latest","linux":"ubuntu-latest","macos":"macos-latest"}')[inputs.runner_os || 'windows'] }}
+    timeout-minutes: 30
+    steps:
+      - name: Check FASTFORGE_REPO
+        shell: bash
+        env:
+          FASTFORGE_REPO: ${{ vars.FASTFORGE_REPO }}
+        run: |
+          if [[ ! "$FASTFORGE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::Repository variable FASTFORGE_REPO must be set to the fastforge repo as owner/repo (got '${FASTFORGE_REPO}')"
+            exit 1
+          fi
+
+      - name: Check out fastforge
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.FASTFORGE_REPO }}
+          ref: ${{ env.FASTFORGE_REF }}
+          path: fastforge
+          token: ${{ secrets.ORG_TOKEN }}
+          persist-credentials: false
+
+      - name: Post-process campaign
+        uses: ./fastforge/postprocess
+        with:
+          project_name:     ${{ needs.prepare.outputs.project_name }}
+          postfast_version: ${{ inputs.postfast_version }}
+          postfast_repo:    ${{ vars.POSTFAST_REPO }}
+          org_token:        ${{ secrets.ORG_TOKEN }}

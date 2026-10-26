@@ -3,7 +3,9 @@ name: Trigger DLC sweep
 # Thin caller: this repo exists so the virtual-employees chat agent
 # (01_sim_employee/app/tools/github_actions.py's trigger_sweep()) has a
 # workflow_dispatch target to POST against. All the actual work — fastprep,
-# TurbSim/OpenFAST matrix, postfast — lives in openfast-tools/fastforge.
+# TurbSim/OpenFAST matrix, postfast — lives in the fastforge repo named by
+# the FASTFORGE_REPO variable (owner/repo), so either repo can be renamed or
+# moved to another org without code changes.
 #
 # fastforge may be PRIVATE while this repo is public. A public repo cannot
 # `uses:` a private reusable workflow or action, so each job below checks
@@ -14,7 +16,7 @@ name: Trigger DLC sweep
 #
 # Requires in this repo: secret ORG_TOKEN (read fastforge, fastprep, postfast
 # and any private openfast_repo; Actions write here to delete per-case
-# artifacts) and variables FASTPREP_REPO, POSTFAST_REPO.
+# artifacts) and variables FASTFORGE_REPO, FASTPREP_REPO, POSTFAST_REPO.
 
 on:
   workflow_dispatch:
@@ -72,10 +74,20 @@ jobs:
       project_name: ${{ steps.prepare.outputs.project_name }}
       fp_version:   ${{ steps.prepare.outputs.fp_version }}
     steps:
+      - name: Check FASTFORGE_REPO
+        shell: bash
+        env:
+          FASTFORGE_REPO: ${{ vars.FASTFORGE_REPO }}
+        run: |
+          if [[ ! "$FASTFORGE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::Repository variable FASTFORGE_REPO must be set to the fastforge repo as owner/repo (got '${FASTFORGE_REPO}')"
+            exit 1
+          fi
+
       - name: Check out fastforge
         uses: actions/checkout@v7
         with:
-          repository: openfast-tools/fastforge
+          repository: ${{ vars.FASTFORGE_REPO }}
           ref: ${{ env.FASTFORGE_REF }}
           path: fastforge
           token: ${{ secrets.ORG_TOKEN }}
@@ -107,10 +119,20 @@ jobs:
       fail-fast: false
       max-parallel: 20
     steps:
+      - name: Check FASTFORGE_REPO
+        shell: bash
+        env:
+          FASTFORGE_REPO: ${{ vars.FASTFORGE_REPO }}
+        run: |
+          if [[ ! "$FASTFORGE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::Repository variable FASTFORGE_REPO must be set to the fastforge repo as owner/repo (got '${FASTFORGE_REPO}')"
+            exit 1
+          fi
+
       - name: Check out fastforge
         uses: actions/checkout@v7
         with:
-          repository: openfast-tools/fastforge
+          repository: ${{ vars.FASTFORGE_REPO }}
           ref: ${{ env.FASTFORGE_REF }}
           path: fastforge
           token: ${{ secrets.ORG_TOKEN }}
@@ -139,10 +161,20 @@ jobs:
     runs-on: ${{ fromJSON('{"windows":"windows-latest","linux":"ubuntu-latest","macos":"macos-latest"}')[inputs.runner_os || 'windows'] }}
     timeout-minutes: 30
     steps:
+      - name: Check FASTFORGE_REPO
+        shell: bash
+        env:
+          FASTFORGE_REPO: ${{ vars.FASTFORGE_REPO }}
+        run: |
+          if [[ ! "$FASTFORGE_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::Repository variable FASTFORGE_REPO must be set to the fastforge repo as owner/repo (got '${FASTFORGE_REPO}')"
+            exit 1
+          fi
+
       - name: Check out fastforge
         uses: actions/checkout@v7
         with:
-          repository: openfast-tools/fastforge
+          repository: ${{ vars.FASTFORGE_REPO }}
           ref: ${{ env.FASTFORGE_REF }}
           path: fastforge
           token: ${{ secrets.ORG_TOKEN }}

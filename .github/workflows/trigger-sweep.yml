@@ -14,9 +14,19 @@ name: Trigger DLC sweep
 # Those actions only call script files, so these public logs show script
 # names, not the logic. Only results are uploaded as artifacts.
 #
-# Requires in this repo: secret ORG_TOKEN (read fastforge, fastprep, postfast
-# and any private openfast_repo; Actions write here to delete per-case
-# artifacts) and variables FASTFORGE_REPO, FASTPREP_REPO, POSTFAST_REPO.
+# Inputs mirror fastforge's dlc11-sweep.yml workflow_dispatch inputs and are
+# passed straight through. This repo has no UI; the fastforge dashboard is the
+# UI. Model source precedence: model_git (owner/repo@ref + model_path, a
+# versioned folder in a private models repo) > model_archive (https URL to a
+# zip, e.g. a short-lived presigned R2 link; it is visible in this public
+# repo's run inputs until it expires) > model_repo/model_tag. Set
+# controller_from_model=true to use the controller inside the model folder.
+# See fastforge's README, "Custom models".
+#
+# Requires in this repo: secret ORG_TOKEN (read fastforge, fastprep, postfast,
+# any private openfast_repo and the models repo; Actions write
+# here to delete per-case artifacts) and variables FASTFORGE_REPO,
+# FASTPREP_REPO, POSTFAST_REPO.
 
 on:
   workflow_dispatch:
@@ -40,6 +50,22 @@ on:
       model_tag:
         type: string
         default: 'v2.10.5'
+      model_git:
+        description: 'Versioned model from a git repo: owner/repo@ref (full commit SHA, branch or tag; private OK via ORG_TOKEN). Precedence: model_git > model_archive > model_repo.'
+        type: string
+        default: ''
+      model_path:
+        description: 'Folder inside the model_git repo holding the model (e.g. 01_NREL-5MW). Empty = repo root.'
+        type: string
+        default: ''
+      model_archive:
+        description: 'Scratch model: https:// URL to a zip of a model folder (short-lived presigned R2 GET URL; visible in run inputs until it expires) or owner/repo@tag/asset.zip. Not together with model_git.'
+        type: string
+        default: ''
+      controller_from_model:
+        description: 'Use the controller library + DISCON.IN/Cp-Ct files inside the model folder (model_git or model_archive) instead of controller_repo'
+        type: boolean
+        default: false
       controller_repo:
         type: string
         default: 'NatLabRockies/ROSCO'
@@ -101,6 +127,10 @@ jobs:
           dlc_file_b64:     ${{ inputs.dlc_file_b64 }}
           model_repo:       ${{ inputs.model_repo }}
           model_tag:        ${{ inputs.model_tag }}
+          model_git:        ${{ inputs.model_git }}
+          model_path:       ${{ inputs.model_path }}
+          model_archive:    ${{ inputs.model_archive }}
+          controller_from_model: ${{ inputs.controller_from_model }}
           controller_repo:  ${{ inputs.controller_repo }}
           controller_tag:   ${{ inputs.controller_tag }}
           wind_speed:       ${{ inputs.wind_speed }}
